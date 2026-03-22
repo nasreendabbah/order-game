@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>משחק סידור משפטים</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Assistant', sans-serif;
+            background-color: #fdfbf7;
+            background-image: linear-gradient(#e5e7eb 1px, transparent 1px);
+            background-size: 100% 40px;
+            min-height: 100vh;
+            margin: 0;
+            user-select: none;
+        }
+
+        .word-tile {
+            transition: all 0.2s ease-in-out;
+            cursor: pointer;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        .word-tile:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+        }
+
+        .word-tile:active {
+            transform: translateY(1px);
+        }
+
+        .shake {
+            animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        .notebook-line {
+            border-bottom: 3px dashed #94a3b8;
+            min-height: 5rem;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-8 flex flex-col items-center">
+
+    <div class="max-w-3xl w-full bg-white rounded-3xl shadow-2xl overflow-hidden border-4 border-slate-100 mt-4 md:mt-10">
+        
+        <!-- כותרת המשחק -->
+        <div class="bg-red-400 text-white text-center py-6 px-4 shadow-md relative">
+            <h1 class="text-3xl md:text-5xl font-extrabold tracking-wide">סַדְּרוּ אֶת הַמִּלִּים</h1>
+            <h2 class="text-xl md:text-2xl mt-2 font-semibold opacity-90">וְכִתְבוּ מִשְׁפָּטִים נְכוֹנִים</h2>
+            
+            <div class="absolute top-4 right-4 bg-white/20 px-4 py-1 rounded-full text-lg font-bold">
+                <span id="progress-text">1/3</span>
+            </div>
+        </div>
+
+        <div class="p-6 md:p-10" id="game-area">
+            
+            <!-- אזור בניית המשפט -->
+            <div class="mb-12">
+                <p class="text-slate-500 mb-2 font-semibold text-lg">לחצו על המילים כדי להרכיב את המשפט כאן:</p>
+                <div id="target-zone" class="notebook-line flex flex-wrap gap-3 items-end pb-2 w-full transition-colors duration-300">
+                    <!-- מילים שנבחרו יופיעו כאן -->
+                </div>
+            </div>
+
+            <!-- אזור המילים המבולגנות -->
+            <div class="mb-12">
+                <div id="source-zone" class="flex flex-wrap gap-4 justify-center min-h-[4rem]">
+                    <!-- מילים יווצרו כאן באמצעות JS -->
+                </div>
+            </div>
+
+            <!-- כפתורי פעולה -->
+            <div class="flex justify-center gap-4 border-t-2 border-slate-100 pt-8">
+                <button onclick="checkAnswer()" id="check-btn" class="bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-2xl py-3 px-10 rounded-full shadow-lg transition-transform transform hover:scale-105 active:scale-95">
+                    בדיקה ✔️
+                </button>
+                <button onclick="resetCurrent()" id="reset-btn" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xl py-3 px-6 rounded-full shadow transition-transform active:scale-95">
+                    התחל מחדש 🔄
+                </button>
+            </div>
+
+        </div>
+
+        <!-- מסך סיום -->
+        <div id="end-screen" class="hidden text-center p-16">
+            <div class="text-7xl mb-6">🏆</div>
+            <h2 class="text-5xl font-black text-emerald-500 mb-4">כל הכבוד!</h2>
+            <p class="text-2xl text-slate-600 mb-8 font-semibold">סיימתם לסדר את כל המשפטים בהצלחה.</p>
+            <button onclick="restartGame()" class="bg-blue-500 hover:bg-blue-600 text-white font-bold text-2xl py-4 px-12 rounded-full shadow-xl transition-transform hover:scale-105 active:scale-95">
+                שחקו שוב
+            </button>
+        </div>
+
+    </div>
+
+    <!-- צלילים -->
+    <script>
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playSound(type) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            const now = audioCtx.currentTime;
+            
+            if (type === 'click') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(600, now);
+                osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+                gain.gain.setValueAtTime(0.1, now);
+                gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+                osc.start(now);
+                osc.stop(now + 0.1);
+            } else if (type === 'success') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(440, now);
+                osc.frequency.setValueAtTime(554.37, now + 0.1);
+                osc.frequency.setValueAtTime(659.25, now + 0.2);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.5);
+                osc.start(now);
+                osc.stop(now + 0.5);
+            } else if (type === 'error') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(200, now);
+                osc.frequency.exponentialRampToValueAtTime(150, now + 0.3);
+                gain.gain.setValueAtTime(0.2, now);
+                gain.gain.linearRampToValueAtTime(0, now + 0.3);
+                osc.start(now);
+                osc.stop(now + 0.3);
+            }
+        }
+
+        // נתוני המשפטים (הועתקו במדויק מהתמונה כולל ניקוד)
+        const levels = [
+            {
+                scrambled: ['קָנָה', 'לְסָבְתָא', 'זָהָב', 'שָׁעוֹן', 'סַבָּא'],
+                validAnswers: [
+                    'סַבָּא קָנָה לְסָבְתָא שָׁעוֹן זָהָב'
+                ]
+            },
+            {
+                scrambled: ['אַלְבּוֹם', 'אַבָּא', 'קָנָה', 'תְּמוּנוֹת', 'לִי'],
+                validAnswers: [
+                    'אַבָּא קָנָה לִי אַלְבּוֹם תְּמוּנוֹת'
+                ]
+            },
+            {
+                scrambled: ['סַבָּא', 'לְסָבְתָא', 'מַתָּנָה', 'קָנָה'],
+                validAnswers: [
+                    'סַבָּא קָנָה מַתָּנָה לְסָבְתָא',
+                    'סַבָּא קָנָה לְסָבְתָא מַתָּנָה'
+                ] // שני הניסוחים נכונים מבחינה תחבירית
+            }
+        ];
+
+        let currentLevelIndex = 0;
+        let selectedWords = [];
+        let availableWords = [];
+
+        const sourceZone = document.getElementById('source-zone');
+        const targetZone = document.getElementById('target-zone');
+        const progressText = document.getElementById('progress-text');
+
+        function initLevel() {
+            const level = levels[currentLevelIndex];
+            // יוצרים עותק של המילים כדי לא לשנות את המערך המקורי
+            availableWords = [...level.scrambled];
+            // הוספת מזהה ייחודי לכל מילה (למקרה שיש מילים כפולות, למרות שאין כאן)
+            availableWords = availableWords.map((word, index) => ({ id: `word-${index}`, text: word }));
+            
+            selectedWords = [];
+            
+            progressText.innerText = `${currentLevelIndex + 1}/${levels.length}`;
+            targetZone.classList.remove('border-emerald-500', 'border-red-400', 'bg-emerald-50');
+            
+            render();
+        }
+
+        function createWordElement(wordObj, isSelected) {
+            const btn = document.createElement('button');
+            btn.innerText = wordObj.text;
+            
+            // עיצוב משותף
+            let classes = "word-tile text-3xl md:text-4xl font-bold py-3 px-5 md:px-6 rounded-2xl border-b-4 ";
+            
+            if (isSelected) {
+                // עיצוב למילה שנבחרה (נמצאת במשפט)
+                classes += "bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200";
+                btn.onclick = () => moveToSource(wordObj);
+            } else {
+                // עיצוב למילה שמחכה (למטה)
+                classes += "bg-amber-100 text-amber-800 border-amber-300 hover:bg-amber-200";
+                btn.onclick = () => moveToTarget(wordObj);
+            }
+            
+            btn.className = classes;
+            return btn;
+        }
+
+        function render() {
+            sourceZone.innerHTML = '';
+            targetZone.innerHTML = '';
+
+            // הצגת המילים שנבחרו
+            selectedWords.forEach(wordObj => {
+                targetZone.appendChild(createWordElement(wordObj, true));
+            });
+
+            // הצגת המילים שנותרו
+            availableWords.forEach(wordObj => {
+                sourceZone.appendChild(createWordElement(wordObj, false));
+            });
+        }
+
+        function moveToTarget(wordObj) {
+            playSound('click');
+            availableWords = availableWords.filter(w => w.id !== wordObj.id);
+            selectedWords.push(wordObj);
+            render();
+        }
+
+        function moveToSource(wordObj) {
+            playSound('click');
+            selectedWords = selectedWords.filter(w => w.id !== wordObj.id);
+            availableWords.push(wordObj);
+            render();
+        }
+
+        function resetCurrent() {
+            playSound('click');
+            initLevel();
+        }
+
+        function checkAnswer() {
+            // אם לא בחרו את כל המילים
+            if (availableWords.length > 0) {
+                targetZone.classList.add('shake', 'border-red-400');
+                playSound('error');
+                setTimeout(() => targetZone.classList.remove('shake', 'border-red-400'), 500);
+                return;
+            }
+
+            const currentSentence = selectedWords.map(w => w.text).join(' ');
+            const validAnswers = levels[currentLevelIndex].validAnswers;
+
+            if (validAnswers.includes(currentSentence)) {
+                // תשובה נכונה
+                playSound('success');
+                targetZone.classList.add('border-emerald-500', 'bg-emerald-50', 'rounded-xl', 'transition-all');
+                confetti({
+                    particleCount: 100,
+                    spread: 70,
+                    origin: { y: 0.6 }
+                });
+
+                document.getElementById('check-btn').disabled = true;
+
+                setTimeout(() => {
+                    document.getElementById('check-btn').disabled = false;
+                    currentLevelIndex++;
+                    if (currentLevelIndex < levels.length) {
+                        initLevel();
+                    } else {
+                        showEndScreen();
+                    }
+                }, 2500);
+
+            } else {
+                // תשובה שגויה
+                playSound('error');
+                targetZone.classList.add('shake', 'border-red-400', 'bg-red-50', 'rounded-xl');
+                setTimeout(() => {
+                    targetZone.classList.remove('shake', 'border-red-400', 'bg-red-50', 'rounded-xl');
+                }, 800);
+            }
+        }
+
+        function showEndScreen() {
+            document.getElementById('game-area').classList.add('hidden');
+            document.getElementById('end-screen').classList.remove('hidden');
+            
+            const duration = 3000;
+            const end = Date.now() + duration;
+
+            (function frame() {
+                confetti({
+                    particleCount: 5,
+                    angle: 60,
+                    spread: 55,
+                    origin: { x: 0 },
+                    colors: ['#ef4444', '#3b82f6', '#10b981']
+                });
+                confetti({
+                    particleCount: 5,
+                    angle: 120,
+                    spread: 55,
+                    origin: { x: 1 },
+                    colors: ['#ef4444', '#3b82f6', '#10b981']
+                });
+
+                if (Date.now() < end) {
+                    requestAnimationFrame(frame);
+                }
+            }());
+        }
+
+        function restartGame() {
+            currentLevelIndex = 0;
+            document.getElementById('game-area').classList.remove('hidden');
+            document.getElementById('end-screen').classList.add('hidden');
+            initLevel();
+        }
+
+        // הפעלה ראשונית
+        initLevel();
+    </script>
+</body>
+</html>
